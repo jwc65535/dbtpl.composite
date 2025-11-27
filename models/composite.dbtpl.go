@@ -35,7 +35,8 @@ func PostgresComposites(ctx context.Context, db DB, schema string) ([]*Composite
 		`LEFT JOIN pg_description d ON d.objoid = t.oid ` +
 		`AND d.objsubid = 0 ` +
 		`WHERE t.typtype = 'c' ` +
-		`AND n.nspname = $1`
+		`AND n.nspname = $1 ` +
+		`AND c.relkind = 'c'`
 	// run
 	logf(sqlstr, schema)
 	rows, err := db.QueryContext(ctx, sqlstr, schema)
@@ -81,6 +82,7 @@ func PostgresCompositeAttributes(ctx context.Context, db DB, schema, composite s
 		`AND a.attnum > 0 ` +
 		`AND n.nspname = $1 ` +
 		`AND t.typname = $2 ` +
+		`AND c.relkind = 'c' ` +
 		`ORDER BY a.attnum`
 	// run
 	logf(sqlstr, schema, composite)
