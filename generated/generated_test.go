@@ -19,9 +19,17 @@ func TestInsertCustomer(t *testing.T) {
 	}
 	defer db.Close()
 
-	billto := NullAddressType{
+	billto1 := AddressType{
+		StreetLine1: sql.NullString{"Billto Street", true},
+	}
+
+	billto2 := AddressType{
+		StreetLine1: sql.NullString{"Shipto Lane", true},
+	}
+
+	shipto := NullAddressType{
 		AddressType: AddressType{
-			StreetLine1: sql.NullString{"123 Main St", true},
+			StreetLine1: sql.NullString{"Shipto Lane", true},
 		},
 		Valid: true,
 	}
@@ -30,7 +38,12 @@ func TestInsertCustomer(t *testing.T) {
 		Name:          "John Doe",
 		CustomerType:  CustomerTypeCommercial,
 		CreatedAt:     sql.NullTime{Time: time.Now(), Valid: true},
-		BilltoAddress: billto,
+		BilltoAddress: billto1,
+		ShiptoAddress: shipto,
+		Addresses: []AddressType{
+			billto1,
+			billto2,
+		},
 	}
 
 	err = customer.Insert(context.Background(), db)

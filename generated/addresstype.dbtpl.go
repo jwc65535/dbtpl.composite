@@ -8,6 +8,7 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // AddressType is the 'address_type' composite type from schema 'public'.
@@ -30,7 +31,7 @@ func (nat NullAddressType) Value() (driver.Value, error) {
 	if !nat.Valid {
 		return nil, nil
 	}
-	return nat.AddressType, nil
+	return atRecordLiteral(nat.AddressType)
 }
 
 // Scan satisfies the [sql.Scanner] interface.
@@ -39,17 +40,8 @@ func (nat *NullAddressType) Scan(v any) error {
 		nat.AddressType, nat.Valid = AddressType{}, false
 		return nil
 	}
-	switch x := v.(type) {
-	case []byte:
-		if err := json.Unmarshal(x, &nat.AddressType); err != nil {
-			return err
-		}
-	case string:
-		if err := json.Unmarshal([]byte(x), &nat.AddressType); err != nil {
-			return err
-		}
-	default:
-		return fmt.Errorf("cannot scan %T into NullAddressType", v)
+	if err := atScanRecord(v, &nat.AddressType); err != nil {
+		return err
 	}
 	nat.Valid = true
 	return nil
@@ -69,7 +61,7 @@ func (at *AddressType) UnmarshalJSON(data []byte) error {
 
 // Value satisfies the [driver.Valuer] interface.
 func (at AddressType) Value() (driver.Value, error) {
-	return json.Marshal(at)
+	return atRecordLiteral(at)
 }
 
 // Scan satisfies the [sql.Scanner] interface.
@@ -78,12 +70,202 @@ func (at *AddressType) Scan(v any) error {
 		*at = AddressType{}
 		return nil
 	}
+	return atScanRecord(v, at)
+}
+
+// atRecordLiteral converts [AddressType] into a PostgreSQL composite literal.
+func atRecordLiteral(at AddressType) (string, error) {
+	parts := make([]string, 0, 4)
+
+	fieldStreetLine1, err := encodeAddressTypeField(at.StreetLine1)
+	if err != nil {
+		return "", err
+	}
+	parts = append(parts, fieldStreetLine1)
+
+	fieldStreetLine2, err := encodeAddressTypeField(at.StreetLine2)
+	if err != nil {
+		return "", err
+	}
+	parts = append(parts, fieldStreetLine2)
+
+	fieldCity, err := encodeAddressTypeField(at.City)
+	if err != nil {
+		return "", err
+	}
+	parts = append(parts, fieldCity)
+
+	fieldZipCode, err := encodeAddressTypeField(at.ZipCode)
+	if err != nil {
+		return "", err
+	}
+	parts = append(parts, fieldZipCode)
+
+	return "(" + strings.Join(parts, ",") + ")", nil
+}
+
+// atScanRecord decodes a PostgreSQL composite literal into [AddressType].
+func atScanRecord(v any, dest *AddressType) error {
+	var record string
 	switch x := v.(type) {
 	case []byte:
-		return json.Unmarshal(x, at)
+		record = string(x)
 	case string:
-		return json.Unmarshal([]byte(x), at)
+		record = x
 	default:
 		return fmt.Errorf("cannot scan %T into AddressType", v)
 	}
+
+	if strings.HasPrefix(record, "{") {
+		return json.Unmarshal([]byte(record), dest)
+	}
+
+	fields, err := parseAddressTypeRecord(record, 4)
+	if err != nil {
+		return err
+	}
+
+	if err := scanAddressTypeField(&dest.StreetLine1, fields[0]); err != nil {
+		return fmt.Errorf("AddressType.StreetLine1: %w", err)
+	}
+
+	if err := scanAddressTypeField(&dest.StreetLine2, fields[1]); err != nil {
+		return fmt.Errorf("AddressType.StreetLine2: %w", err)
+	}
+
+	if err := scanAddressTypeField(&dest.City, fields[2]); err != nil {
+		return fmt.Errorf("AddressType.City: %w", err)
+	}
+
+	if err := scanAddressTypeField(&dest.ZipCode, fields[3]); err != nil {
+		return fmt.Errorf("AddressType.ZipCode: %w", err)
+	}
+
+	return nil
+}
+
+// encodeAddressTypeField converts a value into a composite element literal.
+func encodeAddressTypeField(v any) (string, error) {
+	if valuer, ok := v.(driver.Valuer); ok {
+		val, err := valuer.Value()
+		if err != nil {
+			return "", err
+		}
+		v = val
+	}
+
+	switch x := v.(type) {
+	case nil:
+		return "NULL", nil
+	case string:
+		return "\"" + escapeAddressTypeField(x) + "\"", nil
+	case []byte:
+		return "\"" + escapeAddressTypeField(string(x)) + "\"", nil
+	default:
+		b, err := json.Marshal(x)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
+}
+
+// scanAddressTypeField assigns a composite element into dst.
+func scanAddressTypeField(dst any, src *string) error {
+	if scanner, ok := dst.(sql.Scanner); ok {
+		if src == nil {
+			return scanner.Scan(nil)
+		}
+		return scanner.Scan(*src)
+	}
+
+	if src == nil {
+		return nil
+	}
+
+	switch d := dst.(type) {
+	case *string:
+		*d = *src
+		return nil
+	default:
+		return json.Unmarshal([]byte(*src), dst)
+	}
+}
+
+// parseAddressTypeRecord splits a PostgreSQL composite literal into its fields.
+func parseAddressTypeRecord(record string, expected int) ([]*string, error) {
+	if len(record) < 2 || record[0] != '(' || record[len(record)-1] != ')' {
+		return nil, fmt.Errorf("invalid record literal: %s", record)
+	}
+
+	record = record[1 : len(record)-1]
+	fields := make([]*string, 0, expected)
+
+	var buf strings.Builder
+	inQuotes := false
+	escaped := false
+	quoted := false
+
+	addField := func() {
+		if !quoted && buf.String() == "NULL" {
+			fields = append(fields, nil)
+		} else {
+			val := buf.String()
+			fields = append(fields, &val)
+		}
+		buf.Reset()
+		quoted = false
+	}
+
+	for i := 0; i < len(record); i++ {
+		ch := record[i]
+		if escaped {
+			buf.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		switch ch {
+		case '\\':
+			escaped = true
+		case '"':
+			inQuotes = !inQuotes
+			quoted = true
+		case ',':
+			if inQuotes {
+				buf.WriteByte(ch)
+				continue
+			}
+			addField()
+		default:
+			buf.WriteByte(ch)
+		}
+	}
+
+	addField()
+
+	for i := range fields {
+		if fields[i] == nil {
+			continue
+		}
+		unescaped := unescapeAddressTypeField(*fields[i])
+		fields[i] = &unescaped
+	}
+
+	if expected > 0 && len(fields) != expected {
+		return nil, fmt.Errorf("expected %d fields, got %d", expected, len(fields))
+	}
+
+	return fields, nil
+}
+
+// escapeAddressTypeField escapes a composite field value.
+func escapeAddressTypeField(v string) string {
+	v = strings.ReplaceAll(v, "\\", "\\\\")
+	return strings.ReplaceAll(v, "\"", "\\\"")
+}
+
+// unescapeAddressTypeField reverses escapeAddressTypeField.
+func unescapeAddressTypeField(v string) string {
+	v = strings.ReplaceAll(v, "\\\"", "\"")
+	return strings.ReplaceAll(v, "\\\\", "\\")
 }

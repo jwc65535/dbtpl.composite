@@ -15,8 +15,9 @@ type Customer struct {
 	Name          string          `json:"name"`           // name
 	CustomerType  CustomerType    `json:"customer_type"`  // customer_type
 	CreatedAt     sql.NullTime    `json:"created_at"`     // created_at
-	BilltoAddress NullAddressType `json:"billto_address"` // billto_address
+	BilltoAddress AddressType     `json:"billto_address"` // billto_address
 	ShiptoAddress NullAddressType `json:"shipto_address"` // shipto_address
+	Addresses     []AddressType   `json:"addresses"`      // addresses
 	// xo fields
 	_exists, _deleted bool
 }
@@ -42,13 +43,13 @@ func (c *Customer) Insert(ctx context.Context, db DB) error {
 	}
 	// insert (manual)
 	const sqlstr = `INSERT INTO public.customer (` +
-		`customer_id, name, customer_type, created_at, billto_address, shipto_address` +
+		`customer_id, name, customer_type, created_at, billto_address, shipto_address, addresses` +
 		`) VALUES (` +
-		`$1, $2, $3, $4, $5, $6` +
+		`$1, $2, $3, $4, $5, $6, $7` +
 		`)`
 	// run
-	logf(sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress)
-	if _, err := db.ExecContext(ctx, sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress); err != nil {
+	logf(sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.Addresses)
+	if _, err := db.ExecContext(ctx, sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.Addresses); err != nil {
 		return logerror(err)
 	}
 	// set exists
@@ -66,11 +67,11 @@ func (c *Customer) Update(ctx context.Context, db DB) error {
 	}
 	// update with composite primary key
 	const sqlstr = `UPDATE public.customer SET ` +
-		`name = $1, customer_type = $2, created_at = $3, billto_address = $4, shipto_address = $5 ` +
-		`WHERE customer_id = $6`
+		`name = $1, customer_type = $2, created_at = $3, billto_address = $4, shipto_address = $5, addresses = $6 ` +
+		`WHERE customer_id = $7`
 	// run
-	logf(sqlstr, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.CustomerID)
-	if _, err := db.ExecContext(ctx, sqlstr, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.CustomerID); err != nil {
+	logf(sqlstr, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.Addresses, c.CustomerID)
+	if _, err := db.ExecContext(ctx, sqlstr, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.Addresses, c.CustomerID); err != nil {
 		return logerror(err)
 	}
 	return nil
@@ -92,16 +93,16 @@ func (c *Customer) Upsert(ctx context.Context, db DB) error {
 	}
 	// upsert
 	const sqlstr = `INSERT INTO public.customer (` +
-		`customer_id, name, customer_type, created_at, billto_address, shipto_address` +
+		`customer_id, name, customer_type, created_at, billto_address, shipto_address, addresses` +
 		`) VALUES (` +
-		`$1, $2, $3, $4, $5, $6` +
+		`$1, $2, $3, $4, $5, $6, $7` +
 		`)` +
 		` ON CONFLICT (customer_id) DO ` +
 		`UPDATE SET ` +
-		`name = EXCLUDED.name, customer_type = EXCLUDED.customer_type, created_at = EXCLUDED.created_at, billto_address = EXCLUDED.billto_address, shipto_address = EXCLUDED.shipto_address `
+		`name = EXCLUDED.name, customer_type = EXCLUDED.customer_type, created_at = EXCLUDED.created_at, billto_address = EXCLUDED.billto_address, shipto_address = EXCLUDED.shipto_address, addresses = EXCLUDED.addresses `
 	// run
-	logf(sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress)
-	if _, err := db.ExecContext(ctx, sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress); err != nil {
+	logf(sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.Addresses)
+	if _, err := db.ExecContext(ctx, sqlstr, c.CustomerID, c.Name, c.CustomerType, c.CreatedAt, c.BilltoAddress, c.ShiptoAddress, c.Addresses); err != nil {
 		return logerror(err)
 	}
 	// set exists
@@ -136,7 +137,7 @@ func (c *Customer) Delete(ctx context.Context, db DB) error {
 func CustomerByName(ctx context.Context, db DB, name string) (*Customer, error) {
 	// query
 	const sqlstr = `SELECT ` +
-		`customer_id, name, customer_type, created_at, billto_address, shipto_address ` +
+		`customer_id, name, customer_type, created_at, billto_address, shipto_address, addresses ` +
 		`FROM public.customer ` +
 		`WHERE name = $1`
 	// run
@@ -144,7 +145,7 @@ func CustomerByName(ctx context.Context, db DB, name string) (*Customer, error) 
 	c := Customer{
 		_exists: true,
 	}
-	if err := db.QueryRowContext(ctx, sqlstr, name).Scan(&c.CustomerID, &c.Name, &c.CustomerType, &c.CreatedAt, &c.BilltoAddress, &c.ShiptoAddress); err != nil {
+	if err := db.QueryRowContext(ctx, sqlstr, name).Scan(&c.CustomerID, &c.Name, &c.CustomerType, &c.CreatedAt, &c.BilltoAddress, &c.ShiptoAddress, &c.Addresses); err != nil {
 		return nil, logerror(err)
 	}
 	return &c, nil
@@ -156,7 +157,7 @@ func CustomerByName(ctx context.Context, db DB, name string) (*Customer, error) 
 func CustomerByCustomerID(ctx context.Context, db DB, customerID uuid.UUID) (*Customer, error) {
 	// query
 	const sqlstr = `SELECT ` +
-		`customer_id, name, customer_type, created_at, billto_address, shipto_address ` +
+		`customer_id, name, customer_type, created_at, billto_address, shipto_address, addresses ` +
 		`FROM public.customer ` +
 		`WHERE customer_id = $1`
 	// run
@@ -164,7 +165,7 @@ func CustomerByCustomerID(ctx context.Context, db DB, customerID uuid.UUID) (*Cu
 	c := Customer{
 		_exists: true,
 	}
-	if err := db.QueryRowContext(ctx, sqlstr, customerID).Scan(&c.CustomerID, &c.Name, &c.CustomerType, &c.CreatedAt, &c.BilltoAddress, &c.ShiptoAddress); err != nil {
+	if err := db.QueryRowContext(ctx, sqlstr, customerID).Scan(&c.CustomerID, &c.Name, &c.CustomerType, &c.CreatedAt, &c.BilltoAddress, &c.ShiptoAddress, &c.Addresses); err != nil {
 		return nil, logerror(err)
 	}
 	return &c, nil
