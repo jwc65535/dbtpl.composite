@@ -119,7 +119,7 @@ func ({{ short $nullName }} {{ $nullName }}) Value() (driver.Value, error) {
         if !{{ short $nullName }}.Valid {
                 return nil, nil
         }
-        return {{ short $nullName }}.{{ $c.GoName }}, nil
+        return json.Marshal({{ short $nullName }}.{{ $c.GoName }})
 }
 
 // Scan satisfies the [sql.Scanner] interface.
