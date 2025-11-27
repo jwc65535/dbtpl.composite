@@ -74,12 +74,11 @@ func PQPostgresGoType(d xo.Type, schema, itype, _ string) (string, string, error
 	}
 	if d.IsArray {
 		arrType, ok := pqArrMapping[goType]
-		elem := goType
 		goType, zero = "[]"+goType, "nil"
 		if ok {
 			goType = arrType
 		} else {
-			goType = fmt.Sprintf("pq.GenericArray[%s]", elem)
+			goType = "pq.GenericArray"
 		}
 	}
 	return goType, zero, nil
