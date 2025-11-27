@@ -346,6 +346,9 @@ func fileNames(ctx context.Context, mode string, set *xo.Set) (map[string]bool, 
 					addFile("sp_" + goName)
 				}
 			}
+			for _, c := range schema.Composites {
+				addFile(camelExport(c.Name))
+			}
 			for _, t := range schema.Tables {
 				addFile(camelExport(singularize(t.Name)))
 			}
@@ -513,6 +516,19 @@ func emitSchema(ctx context.Context, schema xo.Schema, emit func(xo.Template)) e
 			Data:     procs,
 		})
 	}
+	// emit composites
+	for _, c := range schema.Composites {
+		comp, err := convertComposite(ctx, c)
+		if err != nil {
+			return err
+		}
+		emit(xo.Template{
+			Partial:  "composite",
+			Dest:     strings.ToLower(comp.GoName) + ext,
+			SortName: comp.GoName,
+			Data:     comp,
+		})
+	}
 	// emit tables
 	for _, t := range append(schema.Tables, schema.Views...) {
 		table, err := convertTable(ctx, t)
@@ -650,6 +666,24 @@ func convertTable(ctx context.Context, t xo.Table) (Table, error) {
 		PrimaryKeys: pkCols,
 		Manual:      t.Manual,
 		Comment:     t.Definition,
+	}, nil
+}
+
+// convertComposite converts a xo.Composite to a Composite.
+func convertComposite(ctx context.Context, c xo.Composite) (Composite, error) {
+	var fields []Field
+	for _, f := range c.Fields {
+		field, err := convertField(ctx, camelExport, f)
+		if err != nil {
+			return Composite{}, err
+		}
+		fields = append(fields, field)
+	}
+	return Composite{
+		GoName:  camelExport(c.Name),
+		SQLName: c.Name,
+		Fields:  fields,
+		Comment: c.Comment,
 	}, nil
 }
 
@@ -2282,6 +2316,14 @@ type Proc struct {
 	Void           bool
 	Overloaded     bool
 	Comment        string
+}
+
+// Composite is a composite type template.
+type Composite struct {
+	GoName  string
+	SQLName string
+	Fields  []Field
+	Comment string
 }
 
 // Table is a type (ie, table/view/custom query) template.

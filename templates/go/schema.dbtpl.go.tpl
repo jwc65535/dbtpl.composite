@@ -89,7 +89,245 @@ type ErrInvalid{{ $e.GoName }} string
 
 // Error satisfies the error interface.
 func (err ErrInvalid{{ $e.GoName }}) Error() string {
-	return fmt.Sprintf("invalid {{ $e.GoName }}(%s)", string(err))
+        return fmt.Sprintf("invalid {{ $e.GoName }}(%s)", string(err))
+}
+{{ end }}
+
+{{ define "composite" }}
+{{- $c := .Data -}}
+{{- if $c.Comment -}}
+// {{ $c.Comment | eval $c.GoName }}
+{{- else -}}
+// {{ $c.GoName }} is the '{{ $c.SQLName }}' composite type from schema '{{ schema }}'.
+{{- end }}
+type {{ $c.GoName }} struct {
+{{ range $c.Fields -}}
+        {{ field . }}
+{{ end }}
+}
+
+{{ $nullName := (printf "Null%s" $c.GoName) -}}
+// {{ $nullName }} represents a null '{{ $c.SQLName }}' composite for schema '{{ schema }}'.
+type {{ $nullName }} struct {
+        {{ $c.GoName }} {{ $c.GoName }}
+        // Valid is true if [{{ $c.GoName }}] is not null.
+        Valid bool
+}
+
+// Value satisfies the [driver.Valuer] interface.
+func ({{ short $nullName }} {{ $nullName }}) Value() (driver.Value, error) {
+        if !{{ short $nullName }}.Valid {
+                return nil, nil
+        }
+        return {{ short $c.GoName }}RecordLiteral({{ short $nullName }}.{{ $c.GoName }})
+}
+
+// Scan satisfies the [sql.Scanner] interface.
+func ({{ short $nullName }} *{{ $nullName }}) Scan(v any) error {
+        if v == nil {
+                {{ short $nullName }}.{{ $c.GoName }}, {{ short $nullName }}.Valid = {{ $c.GoName }}{}, false
+                return nil
+        }
+        if err := {{ short $c.GoName }}ScanRecord(v, &{{ short $nullName }}.{{ $c.GoName }}); err != nil {
+                return err
+        }
+        {{ short $nullName }}.Valid = true
+        return nil
+}
+
+// MarshalJSON marshals [{{ $c.GoName }}] to JSON.
+func ({{ short $c.GoName }} {{ $c.GoName }}) MarshalJSON() ([]byte, error) {
+        type alias {{ $c.GoName }}
+        return json.Marshal(alias({{ short $c.GoName }}))
+}
+
+// UnmarshalJSON unmarshals [{{ $c.GoName }}] from JSON.
+func ({{ short $c.GoName }} *{{ $c.GoName }}) UnmarshalJSON(data []byte) error {
+        type alias {{ $c.GoName }}
+        return json.Unmarshal(data, (*alias)({{ short $c.GoName }}))
+}
+
+// Value satisfies the [driver.Valuer] interface.
+func ({{ short $c.GoName }} {{ $c.GoName }}) Value() (driver.Value, error) {
+        return {{ short $c.GoName }}RecordLiteral({{ short $c.GoName }})
+}
+
+// Scan satisfies the [sql.Scanner] interface.
+func ({{ short $c.GoName }} *{{ $c.GoName }}) Scan(v any) error {
+        if v == nil {
+                *{{ short $c.GoName }} = {{ $c.GoName }}{}
+                return nil
+        }
+        return {{ short $c.GoName }}ScanRecord(v, {{ short $c.GoName }})
+}
+
+// {{ short $c.GoName }}RecordLiteral converts [{{ $c.GoName }}] into a PostgreSQL composite literal.
+func {{ short $c.GoName }}RecordLiteral({{ short $c.GoName }} {{ $c.GoName }}) (string, error) {
+        parts := make([]string, 0, {{ len $c.Fields }})
+{{ range $c.Fields }}
+        field{{ .GoName }}, err := encode{{ $c.GoName }}Field({{ short $c.GoName }}.{{ .GoName }})
+        if err != nil {
+                return "", err
+        }
+        parts = append(parts, field{{ .GoName }})
+{{ end }}
+        return "(" + strings.Join(parts, ",") + ")", nil
+}
+
+// {{ short $c.GoName }}ScanRecord decodes a PostgreSQL composite literal into [{{ $c.GoName }}].
+func {{ short $c.GoName }}ScanRecord(v any, dest *{{ $c.GoName }}) error {
+        var record string
+        switch x := v.(type) {
+        case []byte:
+                record = string(x)
+        case string:
+                record = x
+        default:
+                return fmt.Errorf("cannot scan %T into {{ $c.GoName }}", v)
+        }
+
+        if strings.HasPrefix(record, "{") {
+                return json.Unmarshal([]byte(record), dest)
+        }
+
+        fields, err := parse{{ $c.GoName }}Record(record, {{ len $c.Fields }})
+        if err != nil {
+                return err
+        }
+
+{{ range $i, $f := $c.Fields }}
+        if err := scan{{ $c.GoName }}Field(&dest.{{ $f.GoName }}, fields[{{ $i }}]); err != nil {
+                return fmt.Errorf("{{ $c.GoName }}.{{ $f.GoName }}: %w", err)
+        }
+{{ end }}
+
+        return nil
+}
+
+// encode{{ $c.GoName }}Field converts a value into a composite element literal.
+func encode{{ $c.GoName }}Field(v any) (string, error) {
+        if valuer, ok := v.(driver.Valuer); ok {
+                val, err := valuer.Value()
+                if err != nil {
+                        return "", err
+                }
+                v = val
+        }
+
+        switch x := v.(type) {
+        case nil:
+                return "NULL", nil
+        case string:
+                return "\"" + escape{{ $c.GoName }}Field(x) + "\"", nil
+        case []byte:
+                return "\"" + escape{{ $c.GoName }}Field(string(x)) + "\"", nil
+        default:
+                b, err := json.Marshal(x)
+                if err != nil {
+                        return "", err
+                }
+                return string(b), nil
+        }
+}
+
+// scan{{ $c.GoName }}Field assigns a composite element into dst.
+func scan{{ $c.GoName }}Field(dst any, src *string) error {
+        if scanner, ok := dst.(sql.Scanner); ok {
+                if src == nil {
+                        return scanner.Scan(nil)
+                }
+                return scanner.Scan(*src)
+        }
+
+        if src == nil {
+                return nil
+        }
+
+        switch d := dst.(type) {
+        case *string:
+                *d = *src
+                return nil
+        default:
+                return json.Unmarshal([]byte(*src), dst)
+        }
+}
+
+// parse{{ $c.GoName }}Record splits a PostgreSQL composite literal into its fields.
+func parse{{ $c.GoName }}Record(record string, expected int) ([]*string, error) {
+        if len(record) < 2 || record[0] != '(' || record[len(record)-1] != ')' {
+                return nil, fmt.Errorf("invalid record literal: %s", record)
+        }
+
+        record = record[1 : len(record)-1]
+        fields := make([]*string, 0, expected)
+
+        var buf strings.Builder
+        inQuotes := false
+        escaped := false
+        quoted := false
+
+        addField := func() {
+                if !quoted && buf.String() == "NULL" {
+                        fields = append(fields, nil)
+                } else {
+                        val := buf.String()
+                        fields = append(fields, &val)
+                }
+                buf.Reset()
+                quoted = false
+        }
+
+        for i := 0; i < len(record); i++ {
+                ch := record[i]
+                if escaped {
+                        buf.WriteByte(ch)
+                        escaped = false
+                        continue
+                }
+                switch ch {
+                case '\\':
+                        escaped = true
+                case '"':
+                        inQuotes = !inQuotes
+                        quoted = true
+                case ',':
+                        if inQuotes {
+                                buf.WriteByte(ch)
+                                continue
+                        }
+                        addField()
+                default:
+                        buf.WriteByte(ch)
+                }
+        }
+
+        addField()
+
+        for i := range fields {
+                if fields[i] == nil {
+                        continue
+                }
+                unescaped := unescape{{ $c.GoName }}Field(*fields[i])
+                fields[i] = &unescaped
+        }
+
+        if expected > 0 && len(fields) != expected {
+                return nil, fmt.Errorf("expected %d fields, got %d", expected, len(fields))
+        }
+
+        return fields, nil
+}
+
+// escape{{ $c.GoName }}Field escapes a composite field value.
+func escape{{ $c.GoName }}Field(v string) string {
+        v = strings.ReplaceAll(v, "\\", "\\\\")
+        return strings.ReplaceAll(v, "\"", "\\\"")
+}
+
+// unescape{{ $c.GoName }}Field reverses escape{{ $c.GoName }}Field.
+func unescape{{ $c.GoName }}Field(v string) string {
+        v = strings.ReplaceAll(v, "\\\"", "\"")
+        return strings.ReplaceAll(v, "\\\\", "\\")
 }
 {{ end }}
 
