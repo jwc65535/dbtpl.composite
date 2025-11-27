@@ -13,13 +13,13 @@ import (
 
 // Customer represents a row from 'public.customer'.
 type Customer struct {
-	CustomerID    uuid.UUID                    `json:"customer_id"`    // customer_id
-	Name          string                       `json:"name"`           // name
-	CustomerType  CustomerType                 `json:"customer_type"`  // customer_type
-	CreatedAt     sql.NullTime                 `json:"created_at"`     // created_at
-	BilltoAddress AddressType                  `json:"billto_address"` // billto_address
-	ShiptoAddress NullAddressType              `json:"shipto_address"` // shipto_address
-	Addresses     pq.GenericArray[AddressType] `json:"addresses"`      // addresses
+	CustomerID    uuid.UUID       `json:"customer_id"`    // customer_id
+	Name          string          `json:"name"`           // name
+	CustomerType  CustomerType    `json:"customer_type"`  // customer_type
+	CreatedAt     sql.NullTime    `json:"created_at"`     // created_at
+	BilltoAddress AddressType     `json:"billto_address"` // billto_address
+	ShiptoAddress NullAddressType `json:"shipto_address"` // shipto_address
+	Addresses     pq.GenericArray `json:"addresses"`      // addresses
 	// xo fields
 	_exists, _deleted bool
 }
