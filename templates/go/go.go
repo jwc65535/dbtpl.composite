@@ -1367,7 +1367,7 @@ func (f *Funcs) namesfn(all bool, prefix string, z ...any) string {
 				if !all && p.Interpolate {
 					continue
 				}
-				names = append(names, prefix+p.Name)
+				names = append(names, f.wrapArray(prefix+checkName(p.Name), p.Type))
 			}
 		case Table:
 			for _, p := range x.Fields {

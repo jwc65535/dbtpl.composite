@@ -36,3 +36,24 @@ func TestArrayModeDefaultsToPQ(t *testing.T) {
 		t.Fatalf("expected pq import to be injected for default array mode")
 	}
 }
+
+func TestQueryArrayParamsWrappedWithPQArray(t *testing.T) {
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, xo.DriverKey, "postgres")
+	ctx = context.WithValue(ctx, xo.OutKey, ".")
+
+	funcs, err := NewFuncs(ctx)
+	if err != nil {
+		t.Fatalf("NewFuncs returned error: %v", err)
+	}
+
+	namesFn, ok := funcs["names"].(func(string, ...any) string)
+	if !ok {
+		t.Fatalf("names func missing")
+	}
+
+	got := namesFn("", Query{Params: []QueryParam{{Name: "addresses", Type: "[]AddressType"}}})
+	if got != "pq.Array(addresses)" {
+		t.Fatalf("expected pq.Array wrapping for composite slice params, got %q", got)
+	}
+}
