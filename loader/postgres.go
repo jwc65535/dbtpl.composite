@@ -20,6 +20,8 @@ func init() {
 		EnumValues:       models.PostgresEnumValues,
 		Procs:            models.PostgresProcs,
 		ProcParams:       models.PostgresProcParams,
+		Composites:       models.PostgresComposites,
+		CompositeAttrs:   models.PostgresCompositeAttributes,
 		Tables:           models.PostgresTables,
 		TableColumns:     PostgresTableColumns,
 		TableSequences:   models.PostgresTableSequences,
@@ -54,7 +56,7 @@ func StdlibPostgresGoType(d xo.Type, schema, itype, _ string) (string, string, e
 	}
 	if d.IsArray {
 		arrType, ok := pgStdArrMapping[goType]
-		goType, zero = "[]byte", "nil"
+		goType, zero = "[]"+goType, "nil"
 		if ok {
 			goType = arrType
 		}
@@ -72,9 +74,11 @@ func PQPostgresGoType(d xo.Type, schema, itype, _ string) (string, string, error
 	}
 	if d.IsArray {
 		arrType, ok := pqArrMapping[goType]
-		goType, zero = "pq.GenericArray", "pg.GenericArray{}" // is of type struct { A any }; can't be nil
+		goType, zero = "[]"+goType, "nil"
 		if ok {
-			goType, zero = arrType, "nil"
+			goType = arrType
+		} else {
+			goType = "pq.GenericArray"
 		}
 	}
 	return goType, zero, nil
