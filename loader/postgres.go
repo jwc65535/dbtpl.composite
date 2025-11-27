@@ -77,8 +77,6 @@ func PQPostgresGoType(d xo.Type, schema, itype, _ string) (string, string, error
 		goType, zero = "[]"+goType, "nil"
 		if ok {
 			goType = arrType
-		} else {
-			goType = "pq.GenericArray"
 		}
 	}
 	return goType, zero, nil
