@@ -860,6 +860,9 @@ func NewFuncs(ctx context.Context) (template.FuncMap, error) {
 	}
 	driver, _, schema := xo.DriverDbSchema(ctx)
 	arrayMode := ArrayMode(ctx)
+	if arrayMode == "" {
+		arrayMode = "pq"
+	}
 	nth, err := loader.NthParam(ctx)
 	if err != nil {
 		return nil, err
@@ -2187,7 +2190,7 @@ func Uint32(ctx context.Context) string {
 
 // ArrayMode returns array-mode from the context.
 func ArrayMode(ctx context.Context) string {
-	s, _ := ctx.Value(ArrayMode).(string)
+	s, _ := ctx.Value(ArrayModeKey).(string)
 	return s
 }
 
