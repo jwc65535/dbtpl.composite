@@ -89,7 +89,92 @@ type ErrInvalid{{ $e.GoName }} string
 
 // Error satisfies the error interface.
 func (err ErrInvalid{{ $e.GoName }}) Error() string {
-	return fmt.Sprintf("invalid {{ $e.GoName }}(%s)", string(err))
+        return fmt.Sprintf("invalid {{ $e.GoName }}(%s)", string(err))
+}
+{{ end }}
+
+{{ define "composite" }}
+{{- $c := .Data -}}
+{{- if $c.Comment -}}
+// {{ $c.Comment | eval $c.GoName }}
+{{- else -}}
+// {{ $c.GoName }} is the '{{ $c.SQLName }}' composite type from schema '{{ schema }}'.
+{{- end }}
+type {{ $c.GoName }} struct {
+{{ range $c.Fields -}}
+        {{ field . }}
+{{ end }}
+}
+
+{{ $nullName := (printf "Null%s" $c.GoName) -}}
+// {{ $nullName }} represents a null '{{ $c.SQLName }}' composite for schema '{{ schema }}'.
+type {{ $nullName }} struct {
+        {{ $c.GoName }} {{ $c.GoName }}
+        // Valid is true if [{{ $c.GoName }}] is not null.
+        Valid bool
+}
+
+// Value satisfies the [driver.Valuer] interface.
+func ({{ short $nullName }} {{ $nullName }}) Value() (driver.Value, error) {
+        if !{{ short $nullName }}.Valid {
+                return nil, nil
+        }
+        return {{ short $nullName }}.{{ $c.GoName }}, nil
+}
+
+// Scan satisfies the [sql.Scanner] interface.
+func ({{ short $nullName }} *{{ $nullName }}) Scan(v any) error {
+        if v == nil {
+                {{ short $nullName }}.{{ $c.GoName }}, {{ short $nullName }}.Valid = {{ $c.GoName }}{}, false
+                return nil
+        }
+        switch x := v.(type) {
+        case []byte:
+                if err := json.Unmarshal(x, &{{ short $nullName }}.{{ $c.GoName }}); err != nil {
+                        return err
+                }
+        case string:
+                if err := json.Unmarshal([]byte(x), &{{ short $nullName }}.{{ $c.GoName }}); err != nil {
+                        return err
+                }
+        default:
+                return fmt.Errorf("cannot scan %T into {{ $nullName }}", v)
+        }
+        {{ short $nullName }}.Valid = true
+        return nil
+}
+
+// MarshalJSON marshals [{{ $c.GoName }}] to JSON.
+func ({{ short $c.GoName }} {{ $c.GoName }}) MarshalJSON() ([]byte, error) {
+        type alias {{ $c.GoName }}
+        return json.Marshal(alias({{ short $c.GoName }}))
+}
+
+// UnmarshalJSON unmarshals [{{ $c.GoName }}] from JSON.
+func ({{ short $c.GoName }} *{{ $c.GoName }}) UnmarshalJSON(data []byte) error {
+        type alias {{ $c.GoName }}
+        return json.Unmarshal(data, (*alias)({{ short $c.GoName }}))
+}
+
+// Value satisfies the [driver.Valuer] interface.
+func ({{ short $c.GoName }} {{ $c.GoName }}) Value() (driver.Value, error) {
+        return json.Marshal({{ short $c.GoName }})
+}
+
+// Scan satisfies the [sql.Scanner] interface.
+func ({{ short $c.GoName }} *{{ $c.GoName }}) Scan(v any) error {
+        if v == nil {
+                *{{ short $c.GoName }} = {{ $c.GoName }}{}
+                return nil
+        }
+        switch x := v.(type) {
+        case []byte:
+                return json.Unmarshal(x, {{ short $c.GoName }})
+        case string:
+                return json.Unmarshal([]byte(x), {{ short $c.GoName }})
+        default:
+                return fmt.Errorf("cannot scan %T into {{ $c.GoName }}", v)
+        }
 }
 {{ end }}
 
