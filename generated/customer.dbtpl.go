@@ -6,8 +6,6 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/lib/pq"
-
 	"github.com/google/uuid"
 )
 
@@ -19,7 +17,7 @@ type Customer struct {
 	CreatedAt     sql.NullTime    `json:"created_at"`     // created_at
 	BilltoAddress AddressType     `json:"billto_address"` // billto_address
 	ShiptoAddress NullAddressType `json:"shipto_address"` // shipto_address
-	Addresses     pq.GenericArray `json:"addresses"`      // addresses
+	Addresses     []AddressType   `json:"addresses"`      // addresses
 	// xo fields
 	_exists, _deleted bool
 }
