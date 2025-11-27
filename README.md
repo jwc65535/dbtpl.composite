@@ -61,6 +61,7 @@ The following is a matrix of the feature support for each database:
 | Functions    | :white_check_mark: | :white_check_mark: | :white_check_mark: |  :white_check_mark:  | :white_check_mark: |
 | ENUM types   | :white_check_mark: | :white_check_mark: |                    |                      |                    |
 | Custom types | :white_check_mark: |                    |                    |                      |                    |
+| Composite types | :white_check_mark: |                    |                    |                      |                    |
 
 ## Installing
 
@@ -168,6 +169,30 @@ ENDSQL
 $ go build ./models/
 $ go build ./mssqlmodels/
 ```
+
+## PostgreSQL composite types
+
+`dbtpl` can introspect PostgreSQL composite types created with `CREATE TYPE ...
+AS (...)` and emit Go structs alongside your tables and enums. Composite
+attributes are mapped through the existing PostgreSQL type mapping logic, so
+nested composites and arrays pick up the same Go naming and nullability
+conventions as table columns.
+
+For example, given:
+
+```sql
+CREATE TYPE public.address AS (
+  street text,
+  city   text,
+  postal_code text
+);
+```
+
+the generated code includes an `Address` struct (and `NullAddress` helper)
+mirroring the composite attributes with JSON tags. Composite fields implement
+`sql.Scanner` and `driver.Valuer` using JSON payloads, so queries that cast
+composite values to JSON (for example, `SELECT to_json(address_column)`) can be
+scanned directly into the generated struct.
 
 ## Command Line Options
 
