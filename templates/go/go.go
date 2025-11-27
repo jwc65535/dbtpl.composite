@@ -818,6 +818,7 @@ const ext = ".dbtpl.go"
 // Funcs is a set of template funcs.
 type Funcs struct {
 	driver     string
+	arrayMode  string
 	schema     string
 	nth        func(int) string
 	first      bool
@@ -858,18 +859,24 @@ func NewFuncs(ctx context.Context) (template.FuncMap, error) {
 		inject = string(buf)
 	}
 	driver, _, schema := xo.DriverDbSchema(ctx)
+	arrayMode := ArrayMode(ctx)
 	nth, err := loader.NthParam(ctx)
 	if err != nil {
 		return nil, err
 	}
+	imports := Imports(ctx)
+	if driver == "postgres" && arrayMode == "pq" && !slices.Contains(imports, "github.com/lib/pq") {
+		imports = append(imports, "github.com/lib/pq")
+	}
 	funcs := &Funcs{
 		first:      first,
 		driver:     driver,
+		arrayMode:  arrayMode,
 		schema:     schema,
 		nth:        nth,
 		pkg:        Pkg(ctx),
 		tags:       Tags(ctx),
-		imports:    Imports(ctx),
+		imports:    imports,
 		conflict:   Conflict(ctx),
 		custom:     Custom(ctx),
 		escSchema:  Esc(ctx, "schema"),
@@ -1361,11 +1368,11 @@ func (f *Funcs) namesfn(all bool, prefix string, z ...any) string {
 			}
 		case Table:
 			for _, p := range x.Fields {
-				names = append(names, prefix+checkName(p.GoName))
+				names = append(names, f.wrapArray(prefix+checkName(p.GoName), p.Type))
 			}
 		case []Field:
 			for _, p := range x {
-				names = append(names, prefix+checkName(p.GoName))
+				names = append(names, f.wrapArray(prefix+checkName(p.GoName), p.Type))
 			}
 		case Proc:
 			if params := f.params(x.Params, false); params != "" {
@@ -1378,6 +1385,13 @@ func (f *Funcs) namesfn(all bool, prefix string, z ...any) string {
 		}
 	}
 	return strings.Join(names, ", ")
+}
+
+func (f *Funcs) wrapArray(expr, typ string) string {
+	if f.driver == "postgres" && f.arrayMode == "pq" && strings.HasPrefix(typ, "[]") {
+		return "pq.Array(" + expr + ")"
+	}
+	return expr
 }
 
 // names generates a list of names (excluding certain ones such as interpolated
