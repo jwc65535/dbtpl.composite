@@ -135,6 +135,62 @@ func ({{ short $nullName }} *{{ $nullName }}) Scan(v any) error {
         return nil
 }
 
+// {{ $c.GoName }}Array represents a PostgreSQL array of '{{ $c.SQLName }}'.
+type {{ $c.GoName }}Array []{{ $c.GoName }}
+
+// Value satisfies the [driver.Valuer] interface.
+func ({{ short $c.GoName }}a {{ $c.GoName }}Array) Value() (driver.Value, error) {
+	if {{ short $c.GoName }}a == nil {
+		return nil, nil
+	}
+	parts := make([]string, len({{ short $c.GoName }}a))
+	for i, elem := range {{ short $c.GoName }}a {
+		literal, err := {{ short $c.GoName }}RecordLiteral(elem)
+		if err != nil {
+			return nil, err
+		}
+		escaped := strings.ReplaceAll(literal, `\\`, `\\\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\\"`)
+		parts[i] = `"` + escaped + `"`
+	}
+	return "{" + strings.Join(parts, ",") + "}", nil
+}
+
+// Scan satisfies the [sql.Scanner] interface.
+func ({{ short $c.GoName }}a *{{ $c.GoName }}Array) Scan(v any) error {
+	if v == nil {
+		*{{ short $c.GoName }}a = nil
+		return nil
+	}
+	var data string
+	switch x := v.(type) {
+	case []byte:
+		data = string(x)
+	case string:
+		data = x
+	default:
+		return fmt.Errorf("cannot scan %T into {{ $c.GoName }}Array", v)
+	}
+	elements, err := parse{{ $c.GoName }}Array(data)
+	if err != nil {
+		return err
+	}
+	result := make({{ $c.GoName }}Array, len(elements))
+	for i, elem := range elements {
+		if elem == nil {
+			if err := {{ short $c.GoName }}ScanRecord(nil, &result[i]); err != nil {
+				return fmt.Errorf("element %d: %w", i, err)
+			}
+			continue
+		}
+		if err := {{ short $c.GoName }}ScanRecord(*elem, &result[i]); err != nil {
+			return fmt.Errorf("element %d: %w", i, err)
+		}
+	}
+	*{{ short $c.GoName }}a = result
+	return nil
+}
+
 // MarshalJSON marshals [{{ $c.GoName }}] to JSON.
 func ({{ short $c.GoName }} {{ $c.GoName }}) MarshalJSON() ([]byte, error) {
         type alias {{ $c.GoName }}
@@ -202,6 +258,82 @@ func {{ short $c.GoName }}ScanRecord(v any, dest *{{ $c.GoName }}) error {
 {{ end }}
 
         return nil
+}
+
+// parse{{ $c.GoName }}Array splits a PostgreSQL array literal into its elements.
+func parse{{ $c.GoName }}Array(arrayLiteral string) ([]*string, error) {
+	arrayLiteral = strings.TrimSpace(arrayLiteral)
+	if len(arrayLiteral) < 2 || arrayLiteral[0] != '{' || arrayLiteral[len(arrayLiteral)-1] != '}' {
+		return nil, fmt.Errorf("invalid array format: %s", arrayLiteral)
+	}
+
+	arrayLiteral = arrayLiteral[1 : len(arrayLiteral)-1]
+	if arrayLiteral == "" {
+		return []*string{}, nil
+	}
+
+	var elements []*string
+	var buf strings.Builder
+	inQuotes := false
+	escaped := false
+	elementQuoted := false
+	var quotedFlags []bool
+
+	addElement := func() {
+		val := buf.String()
+		if !elementQuoted {
+			val = strings.TrimSpace(val)
+		}
+		switch {
+		case !elementQuoted && val == "NULL":
+			elements = append(elements, nil)
+		default:
+			if elementQuoted {
+				val = strings.ReplaceAll(val, `\\\"`, `\"`)
+				val = strings.ReplaceAll(val, `\\\\`, `\\`)
+			}
+			elements = append(elements, &val)
+		}
+		quotedFlags = append(quotedFlags, elementQuoted)
+		buf.Reset()
+		elementQuoted = false
+	}
+
+	for i := 0; i < len(arrayLiteral); i++ {
+		ch := arrayLiteral[i]
+		switch {
+		case escaped:
+			buf.WriteByte(ch)
+			escaped = false
+		case ch == '\\':
+			escaped = true
+		case ch == '"':
+			inQuotes = !inQuotes
+			elementQuoted = true
+		case ch == ',' && !inQuotes:
+			addElement()
+		default:
+			buf.WriteByte(ch)
+		}
+	}
+
+	if inQuotes {
+		return nil, fmt.Errorf("invalid array format: %s", arrayLiteral)
+	}
+
+	addElement()
+
+	for i, elem := range elements {
+		if elem == nil || !quotedFlags[i] {
+			continue
+		}
+		val := *elem
+		val = strings.ReplaceAll(val, `\\\"`, `\"`)
+		val = strings.ReplaceAll(val, `\\\\`, `\\`)
+		elements[i] = &val
+	}
+
+	return elements, nil
 }
 
 // encode{{ $c.GoName }}Field converts a value into a composite element literal.

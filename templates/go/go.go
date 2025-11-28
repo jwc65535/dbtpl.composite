@@ -679,12 +679,19 @@ func convertComposite(ctx context.Context, c xo.Composite) (Composite, error) {
 		}
 		fields = append(fields, field)
 	}
-	return Composite{
+	comp := Composite{
 		GoName:  camelExport(c.Name),
 		SQLName: c.Name,
 		Fields:  fields,
 		Comment: c.Comment,
-	}, nil
+	}
+
+	if knownTypes := KnownTypes(ctx); knownTypes != nil {
+		knownTypes[comp.GoName] = true
+		knownTypes[comp.GoName+"Array"] = true
+	}
+
+	return comp, nil
 }
 
 func convertIndex(ctx context.Context, t Table, i xo.Index) (Index, error) {
@@ -1392,6 +1399,15 @@ func (f *Funcs) namesfn(all bool, prefix string, z ...any) string {
 
 func (f *Funcs) wrapArray(expr, typ string) string {
 	if f.driver == "postgres" && f.arrayMode == "pq" && strings.HasPrefix(typ, "[]") {
+		innerType := typ[2:]
+		if strings.HasSuffix(innerType, "Array") {
+			return expr
+		}
+		if f.knownTypes != nil {
+			if f.knownTypes[innerType+"Array"] {
+				return expr
+			}
+		}
 		return "pq.Array(" + expr + ")"
 	}
 	return expr
