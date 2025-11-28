@@ -31,14 +31,14 @@ func TestPostgresCompositeGoType(t *testing.T) {
 		{
 			name:   "array of composites stdlib",
 			typ:    xo.Type{Type: "public.address", IsArray: true},
-			goType: "[]Address",
+			goType: "AddressArray",
 			zero:   "nil",
 			mapper: StdlibPostgresGoType,
 		},
 		{
 			name:   "array of composites pq",
 			typ:    xo.Type{Type: "public.address", IsArray: true},
-			goType: "[]Address",
+			goType: "AddressArray",
 			zero:   "nil",
 			mapper: PQPostgresGoType,
 		},

@@ -55,6 +55,9 @@ func StdlibPostgresGoType(d xo.Type, schema, itype, _ string) (string, string, e
 		return "", "", err
 	}
 	if d.IsArray {
+		if isCompositeType(d.Type) {
+			return goType + "Array", "nil", nil
+		}
 		arrType, ok := pgStdArrMapping[goType]
 		goType, zero = "[]"+goType, "nil"
 		if ok {
@@ -73,6 +76,9 @@ func PQPostgresGoType(d xo.Type, schema, itype, _ string) (string, string, error
 		return "", "", err
 	}
 	if d.IsArray {
+		if isCompositeType(d.Type) {
+			return goType + "Array", "nil", nil
+		}
 		arrType, ok := pqArrMapping[goType]
 		goType, zero = "[]"+goType, "nil"
 		if ok {
@@ -260,6 +266,10 @@ var pqArrMapping = map[string]string{
 	"int32":   "pq.Int32Array",
 	"string":  "pq.StringArray",
 	// default: "pq.GenericArray"
+}
+
+func isCompositeType(typ string) bool {
+	return strings.Contains(typ, ".")
 }
 
 // oidsKey is the oids context key.
