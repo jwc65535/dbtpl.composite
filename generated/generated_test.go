@@ -40,7 +40,7 @@ func TestInsertCustomer(t *testing.T) {
 		CreatedAt:     sql.NullTime{Time: time.Now(), Valid: true},
 		BilltoAddress: billto1,
 		ShiptoAddress: shipto,
-		Addresses: []AddressType{
+		Addresses: AddressTypeArray{
 			billto1,
 			billto2,
 		},
