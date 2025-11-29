@@ -47,6 +47,50 @@ func (nat *NullAddressType) Scan(v any) error {
 	return nil
 }
 
+// AddressTypeArray represents a PostgreSQL array of 'address_type'.
+type AddressTypeArray []AddressType
+
+// Value satisfies the [driver.Valuer] interface.
+func (ata AddressTypeArray) Value() (driver.Value, error) {
+	if ata == nil {
+		return nil, nil
+	}
+	parts := make([]string, len(ata))
+	for i, elem := range ata {
+		literal, err := atRecordLiteral(elem)
+		if err != nil {
+			return nil, err
+		}
+		escaped := strings.ReplaceAll(literal, `\\`, `\\\\`)
+		escaped = strings.ReplaceAll(escaped, `"`, `\\"`)
+		parts[i] = `"` + escaped + `"`
+	}
+	return "{" + strings.Join(parts, ",") + "}", nil
+}
+
+// Scan satisfies the [sql.Scanner] interface.
+func (ata *AddressTypeArray) Scan(v any) error {
+	if v == nil {
+		*ata = nil
+		return nil
+	}
+	var data string
+	switch x := v.(type) {
+	case []byte:
+		data = string(x)
+	case string:
+		data = x
+	default:
+		return fmt.Errorf("cannot scan %T into AddressTypeArray", v)
+	}
+	elements, err := parseAddressTypeArray(data)
+	if err != nil {
+		return err
+	}
+	*ata = elements
+	return nil
+}
+
 // MarshalJSON marshals [AddressType] to JSON.
 func (at AddressType) MarshalJSON() ([]byte, error) {
 	type alias AddressType
@@ -142,6 +186,94 @@ func atScanRecord(v any, dest *AddressType) error {
 	}
 
 	return nil
+}
+
+// parseAddressTypeArray converts a PostgreSQL array literal into its composite elements.
+func parseAddressTypeArray(arrayLiteral string) ([]AddressType, error) {
+	arrayLiteral = strings.TrimSpace(arrayLiteral)
+	if arrayLiteral == "" || arrayLiteral == "{}" {
+		return []AddressType{}, nil
+	}
+	if len(arrayLiteral) < 2 || arrayLiteral[0] != '{' || arrayLiteral[len(arrayLiteral)-1] != '}' {
+		return nil, fmt.Errorf("invalid array format: %s", arrayLiteral)
+	}
+
+	inner := arrayLiteral[1 : len(arrayLiteral)-1]
+	if inner == "" {
+		return []AddressType{}, nil
+	}
+
+	rawElements := splitAddressTypeArrayElements(inner)
+	result := make([]AddressType, 0, len(rawElements))
+	for i, elem := range rawElements {
+		elem = strings.TrimSpace(elem)
+		if elem == "NULL" {
+			result = append(result, AddressType{})
+			continue
+		}
+		if strings.HasPrefix(elem, "\"") && strings.HasSuffix(elem, "\"") {
+			elem = elem[1 : len(elem)-1]
+			elem = strings.ReplaceAll(elem, `\\\"`, `\"`)
+			elem = strings.ReplaceAll(elem, `\\\\`, `\\`)
+		}
+
+		var item AddressType
+		if err := atScanRecord(elem, &item); err != nil {
+			return nil, fmt.Errorf("element %d: %w", i, err)
+		}
+		result = append(result, item)
+	}
+
+	return result, nil
+}
+
+// splitAddressTypeArrayElements splits a PostgreSQL array inner literal into individual composite elements.
+func splitAddressTypeArrayElements(s string) []string {
+	var result []string
+	var current strings.Builder
+	depth := 0
+	inQuote := false
+	escaped := false
+
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if escaped {
+			current.WriteByte(ch)
+			escaped = false
+			continue
+		}
+		switch ch {
+		case '\\':
+			current.WriteByte(ch)
+			escaped = true
+			continue
+		case '"':
+			current.WriteByte(ch)
+			inQuote = !inQuote
+			continue
+		case '(':
+			if !inQuote {
+				depth++
+			}
+		case ')':
+			if !inQuote && depth > 0 {
+				depth--
+			}
+		case ',':
+			if !inQuote && depth == 0 {
+				result = append(result, current.String())
+				current.Reset()
+				continue
+			}
+		}
+		current.WriteByte(ch)
+	}
+
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
 }
 
 // encodeAddressTypeField converts a value into a composite element literal.
